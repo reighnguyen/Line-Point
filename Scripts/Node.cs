@@ -1,4 +1,6 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
@@ -24,7 +26,7 @@ public partial class Node : MonoBehaviour, IPointerDownHandler, IPointerUpHandle
             return _displayImg;
         }
     }
-
+    [SerializeField]
     private bool _isActive;
     public bool IsActive
     {
@@ -34,7 +36,7 @@ public partial class Node : MonoBehaviour, IPointerDownHandler, IPointerUpHandle
         }
         set
         {
-            if(!value)
+            if (!value)
             {
                 SetColor(Color.clear);
             }
@@ -55,13 +57,18 @@ public partial class Node : MonoBehaviour, IPointerDownHandler, IPointerUpHandle
     private float _scaleFactor;
     private Vector3 _originScale;
     private bool _isScaling;
+    private Action _finshScale;
 
     // pointer handle
     private bool _isPoiterDown;
 
     // move handle
+    private bool _isMoving;
+    private WaitForSeconds _waitToNextMove;
+    private AStarPathFinding.IPoint _curLocation;
+    private List<AStarPathFinding.IPoint> _path;
 
-
+    public int dirs;
     public void SetIndex(int index)
     {
         if (!IsActive)
@@ -81,9 +88,18 @@ public partial class Node : MonoBehaviour, IPointerDownHandler, IPointerUpHandle
             {
                 _info = info;
                 _index = index;
-                _info.neighbours = BoardManager.GetDirectionsByIndex(_index);
+                if (_info.neighbours == (int)Node.Neighbour.None)
+                {
+                    _info.neighbours = BoardManager.GetDirectionsByIndex(_index);
+                    dirs = _info.neighbours;
+                }
+                else
+                {
+                    _info.neighbours = dirs;
+                }
+
                 SetColor(_info.color);
-                IsActive = true;                
+                IsActive = true;
             }
         }
     }
@@ -96,7 +112,6 @@ public partial class Node : MonoBehaviour, IPointerDownHandler, IPointerUpHandle
 
     public void ResetNode()
     {
-        _info = null;
         IsActive = false;
         DisplayImg.color = Color.clear;
 
@@ -110,26 +125,95 @@ public partial class Node : MonoBehaviour, IPointerDownHandler, IPointerUpHandle
         DisplayImg.color = color;
     }
 
-    public void StartScale(float from, float to, float scaleFactor)
+    public void StartScale(float from, float to, float scaleFactor, Action finishAct)
     {
         if (!_isScaling && scaleFactor != 0)
         {
             _isScaling = true;
             _targetScale = to;
             _curScale = from;
-            int factorSign = from < to ? 1 : -1;
+            int factorSign = from <= to ? 1 : -1;
             _scaleFactor = Mathf.Abs(scaleFactor) * factorSign;
+            _finshScale = finishAct;
         }
     }
 
-    public void StartMove(List<AStarPathFinding.IPoint> path)
+    public void StartMove(List<AStarPathFinding.IPoint> path, Action finishAct)
+    {
+        if (IsActive)
+        {
+            if (_path == null && !_isMoving)
+            {
+                _path = path;
+                _isMoving = true;
+
+                float scaleFactor = 1;
+                float delayTime = 1.0f / scaleFactor;
+
+                for (int i = 1; i < _path.Count; i++)
+                {
+                    (_path[i] as Node).StartScale(0.3f, 0.3f, scaleFactor, null);
+                    (_path[i] as Node).SetColor(PrimaryInfo.color);
+                }
+
+                StartCoroutine(MoveCoroutine(finishAct, delayTime));
+            }
+        }
+    }
+
+    private void MoveFinish(Action finishAct)
     {
 
+        for (int i = 0; i < _path.Count; i++)
+        {
+            (_path[i] as Node).IsActive = false;
+        }
+
+        if (finishAct != null)
+        {
+            finishAct.Invoke();
+        }
+
+        _path = null;
+        _isMoving = false;
+    }
+
+    private IEnumerator MoveCoroutine(Action finishAct, float delayTime)
+    {
+        _path.Reverse();
+        //yield return new WaitForSeconds(delayTime);
+
+        int curMoveIndex = 0;
+        int pointCount = _path.Count;
+        while (_isMoving)
+        {
+            if (curMoveIndex < pointCount)
+            {
+                _curLocation = _path[curMoveIndex];
+                (_curLocation as Node).SetColor(PrimaryInfo.color);
+                if (curMoveIndex == pointCount - 1)
+                {
+                    (_curLocation as Node).StartScale(0.3f, 1f, 1, () => MoveFinish(finishAct));
+                }
+                else
+                {
+                    (_curLocation as Node).StartScale(0.3f, 0.4f, 1, null);
+                }
+                curMoveIndex++;
+                yield return _waitToNextMove;
+            }
+            else
+            {
+                _isMoving = false;
+            }
+        }
+        yield break;
     }
 
     private void Awake()
     {
         _originScale = DisplayImg.rectTransform.localScale;
+        _waitToNextMove = new WaitForSeconds(0.1f);
     }
 
     private void Update()
@@ -142,7 +226,7 @@ public partial class Node : MonoBehaviour, IPointerDownHandler, IPointerUpHandle
 
     private void ScaleUpdate()
     {
-        if(_scaleFactor > 0)
+        if (_scaleFactor > 0)
         {
             ScaleUp();
         }
@@ -158,6 +242,11 @@ public partial class Node : MonoBehaviour, IPointerDownHandler, IPointerUpHandle
         {
             _curScale = _targetScale;
             _isScaling = false;
+            if (_finshScale != null)
+            {
+                _finshScale.Invoke();
+                _finshScale = null;
+            }
         }
         else
         {
@@ -172,6 +261,11 @@ public partial class Node : MonoBehaviour, IPointerDownHandler, IPointerUpHandle
         {
             _curScale = _targetScale;
             _isScaling = false;
+            if (_finshScale != null)
+            {
+                _finshScale.Invoke();
+                _finshScale = null;
+            }
         }
         else
         {

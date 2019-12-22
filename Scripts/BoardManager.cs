@@ -99,7 +99,7 @@ public class BoardManager : MonoBehaviour
         {
             Node.Primary info = NodeFactory.GetRandomInfo();
             Node node = Nodes[i].GetComponent<Node>();
-            node.StartScale(0, 1, 0.5f);
+            node.StartScale(0, 1, 0.5f, null);
             node.ChangeInfo(info);
 
             if (i > Nodes.Count - 20)
@@ -119,7 +119,7 @@ public class BoardManager : MonoBehaviour
                 if (node.IsActive)
                 {
                     _selectedNodes.Enqueue(node);
-                    node.StartScale(1.2f, 1f, 0.5f);
+                    node.StartScale(1.2f, 1f, 0.5f, null);
                 }
                 break;
             case 1:
@@ -138,17 +138,29 @@ public class BoardManager : MonoBehaviour
                 {
                     return CalDistance(p, seccondSel);
                 });
-            if(result)
+            if (result)
             {
                 List<AStarPathFinding.IPoint> path = new List<AStarPathFinding.IPoint>();
                 AStar.GetTracking(seccondSel, ref path);
-                for (int i = 0; i < path.Count; i++)
-                {
-                    NodeDic[path[i].GetUniqueId()].SetColor(Color.cyan);
-                }
+                path.Add(seccondSel);
+                firstSel.StartMove(path, () =>
+                 {
+                     PointMoveFinish(firstSel, seccondSel);
+                 });
             }
         }
     }
+
+    private void PointMoveFinish(Node firstSel, Node seccondSel)
+    {
+        Node.Primary temp = firstSel.PrimaryInfo;
+        firstSel.ChangeInfo(seccondSel.PrimaryInfo);
+        seccondSel.ChangeInfo(temp);
+
+        seccondSel.StartScale(0.3f, 1.0f, 1, null);
+        firstSel.IsActive = false;
+    }
+
 
     public List<AStarPathFinding.IPoint> GetMoveablePoints(AStarPathFinding.IPoint cur)
     {
@@ -258,8 +270,10 @@ public class BoardManager : MonoBehaviour
         return Vector3.Distance(GetNodeByIndex(from.GetUniqueId()).transform.localPosition, GetNodeByIndex(to.GetUniqueId()).transform.localPosition);
     }
 
+
     public static int GetDirectionsByIndex(int index)
     {
+        Debug.Log(string.Format("{0} ::=> {1}", index, "in"));
         int r = -1;
         int c = -1;
         int dirs = (int)Node.Neighbour.None;
@@ -275,11 +289,12 @@ public class BoardManager : MonoBehaviour
             {
                 if (r < ROW - 1)
                 {
-                    dirs = dirs | (int)Node.Neighbour.S | (int)Node.Neighbour.N;
+                    dirs |= (int)Node.Neighbour.S;
+                    dirs |= (int)Node.Neighbour.N;
                 }
                 else
                 {
-                    dirs = dirs | (int)Node.Neighbour.N;
+                    dirs |= (int)Node.Neighbour.N;
                 }
             }
 
@@ -292,11 +307,12 @@ public class BoardManager : MonoBehaviour
             {
                 if (c < COL - 1)
                 {
-                    dirs = dirs | (int)Node.Neighbour.E | (int)Node.Neighbour.W;
+                    dirs |= (int)Node.Neighbour.E;
+                    dirs |= (int)Node.Neighbour.W;
                 }
                 else
                 {
-                    dirs = dirs | (int)Node.Neighbour.W;
+                    dirs |= (int)Node.Neighbour.W;
                 }
             }
             if (BoardManager.Instance.isOctalDirs)
@@ -304,25 +320,26 @@ public class BoardManager : MonoBehaviour
                 // SE
                 if ((dirs & (int)Node.Neighbour.S) > 0 && (dirs & (int)Node.Neighbour.E) > 0)
                 {
-                    dirs = dirs | (int)Node.Neighbour.SE;
+                    dirs |= (int)Node.Neighbour.SE;
                 }
                 // SW
                 if ((dirs & (int)Node.Neighbour.S) > 0 && (dirs & (int)Node.Neighbour.W) > 0)
                 {
-                    dirs = dirs | (int)Node.Neighbour.SW;
+                    dirs |= (int)Node.Neighbour.SW;
                 }
                 // NW
                 if ((dirs & (int)Node.Neighbour.N) > 0 && (dirs & (int)Node.Neighbour.W) > 0)
                 {
-                    dirs = dirs | (int)Node.Neighbour.NW;
+                    dirs |= (int)Node.Neighbour.NW;
                 }
                 // NE
                 if ((dirs & (int)Node.Neighbour.N) > 0 && (dirs & (int)Node.Neighbour.E) > 0)
                 {
-                    dirs = dirs | (int)Node.Neighbour.NE;
+                    dirs |= (int)Node.Neighbour.NE;
                 }
             }
         }
+        Debug.Log(string.Format("{0} ::=> {1}", index, "out " + dirs));
         return dirs;
     }
     private static int ConvertTo1DIndex(int row, int col)
