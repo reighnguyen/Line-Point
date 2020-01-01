@@ -71,9 +71,33 @@ public class BoardManager : MonoBehaviour
         }
     }
 
+    private Dictionary<Node.Neighbour, int[]> _directionPatterns;
+    private Dictionary<Node.Neighbour, int[]> DirectionPatterns
+    {
+        get
+        {
+            if (_directionPatterns == null)
+            {
+                _directionPatterns = new Dictionary<Node.Neighbour, int[]>()
+                {
+                    { Node.Neighbour.N,  new int[2]{ -1, +0 } },
+                    { Node.Neighbour.NE, new int[2]{ -1, +1 } },
+                    { Node.Neighbour.E,  new int[2]{ +0, +1 } },
+                    { Node.Neighbour.SE, new int[2]{ +1, +1 } },
+                    { Node.Neighbour.S,  new int[2]{ +1, +0 } },
+                    { Node.Neighbour.SW, new int[2]{ +1, -1 } },
+                    { Node.Neighbour.W,  new int[2]{ +0, -1 } },
+                    { Node.Neighbour.NW, new int[2]{ -1, -1 } },
+                };
+            }
+            return _directionPatterns;
+        }
+    }
+
     public bool isOctalDirs;
     public const int COL = 9;
     public const int ROW = 9;
+    public bool locker;
 
     private void Awake()
     {
@@ -112,41 +136,56 @@ public class BoardManager : MonoBehaviour
 
     public void NodeSelected(Node node)
     {
-        int count = _selectedNodes.Count;
-        switch (count)
+        if (!locker)
         {
-            case 0:
-                if (node.IsActive)
-                {
-                    _selectedNodes.Enqueue(node);
-                    node.StartScale(1.2f, 1f, 0.5f, null);
-                }
-                break;
-            case 1:
-                if (!node.IsActive)
-                {
-                    _selectedNodes.Enqueue(node);
-                }
-                break;
-        }
-        if (_selectedNodes.Count == 2)
-        {
-            Node firstSel = _selectedNodes.Dequeue();
-            Node seccondSel = _selectedNodes.Dequeue();
-
-            bool result = AStar.Find(firstSel, seccondSel, GetMoveablePoints, (p) =>
-                {
-                    return CalDistance(p, seccondSel);
-                });
-            if (result)
+            locker = true;
+            int count = _selectedNodes.Count;
+            switch (count)
             {
-                List<AStarPathFinding.IPoint> path = new List<AStarPathFinding.IPoint>();
-                AStar.GetTracking(seccondSel, ref path);
-                path.Add(seccondSel);
-                firstSel.StartMove(path, () =>
-                 {
-                     PointMoveFinish(firstSel, seccondSel);
-                 });
+                case 0:
+                    if (node.IsActive)
+                    {
+                        _selectedNodes.Enqueue(node);
+                        node.StartScale(1.2f, 1f, 0.5f, null);
+                    }
+                    break;
+                case 1:
+                    if (!node.IsActive)
+                    {
+                        _selectedNodes.Enqueue(node);
+                    }
+                    else
+                    {
+                        _selectedNodes.Clear();
+                    }
+                    break;
+            }
+            if (_selectedNodes.Count == 2)
+            {
+                Node firstSel = _selectedNodes.Dequeue();
+                Node seccondSel = _selectedNodes.Dequeue();
+
+                bool result = AStar.Find(firstSel, seccondSel, GetMoveablePoints, (p) =>
+                    {
+                        return CalDistance(p, seccondSel);
+                    });
+                if (result)
+                {
+                    List<AStarPathFinding.IPoint> path = new List<AStarPathFinding.IPoint>();
+                    AStar.GetTracking(seccondSel, ref path);
+                    firstSel.StartMove(path, seccondSel, () =>
+                      {
+                          PointMoveFinish(firstSel, seccondSel);
+                      });
+                }
+                else
+                {
+                    locker = false;
+                }
+            }
+            else
+            {
+                locker = false;
             }
         }
     }
@@ -157,10 +196,9 @@ public class BoardManager : MonoBehaviour
         firstSel.ChangeInfo(seccondSel.PrimaryInfo);
         seccondSel.ChangeInfo(temp);
 
-        seccondSel.StartScale(0.3f, 1.0f, 1, null);
+        seccondSel.StartScale(0.3f, 1.0f, 1, () => CheckBoard(seccondSel));
         firstSel.IsActive = false;
     }
-
 
     public List<AStarPathFinding.IPoint> GetMoveablePoints(AStarPathFinding.IPoint cur)
     {
@@ -181,6 +219,93 @@ public class BoardManager : MonoBehaviour
             }
         }
         Debug.LogError("Not found " + index);
+        return null;
+    }
+
+    private void CheckBoard(AStarPathFinding.IPoint endPoint)
+    {
+        Dictionary<Node.Neighbour, List<AStarPathFinding.IPoint>> continualPoints = new Dictionary<Node.Neighbour, List<AStarPathFinding.IPoint>>();
+        continualPoints[Node.Neighbour.E] = AStar.GetContinuallyPoints(endPoint, (point) => GetNextPointByDirection(point as Node, Node.Neighbour.E));
+        continualPoints[Node.Neighbour.N] = AStar.GetContinuallyPoints(endPoint, (point) => GetNextPointByDirection(point as Node, Node.Neighbour.N));
+        continualPoints[Node.Neighbour.S] = AStar.GetContinuallyPoints(endPoint, (point) => GetNextPointByDirection(point as Node, Node.Neighbour.S));
+        continualPoints[Node.Neighbour.W] = AStar.GetContinuallyPoints(endPoint, (point) => GetNextPointByDirection(point as Node, Node.Neighbour.W));
+        if (isOctalDirs)
+        {
+            continualPoints[Node.Neighbour.NE] = AStar.GetContinuallyPoints(endPoint, (point) => GetNextPointByDirection(point as Node, Node.Neighbour.NE));
+            continualPoints[Node.Neighbour.SE] = AStar.GetContinuallyPoints(endPoint, (point) => GetNextPointByDirection(point as Node, Node.Neighbour.SE));
+            continualPoints[Node.Neighbour.SW] = AStar.GetContinuallyPoints(endPoint, (point) => GetNextPointByDirection(point as Node, Node.Neighbour.SW));
+            continualPoints[Node.Neighbour.NW] = AStar.GetContinuallyPoints(endPoint, (point) => GetNextPointByDirection(point as Node, Node.Neighbour.NW));
+        }
+        CombinateDirections(endPoint, continualPoints);
+    }
+
+    private void CombinateDirections(AStarPathFinding.IPoint center, Dictionary<Node.Neighbour, List<AStarPathFinding.IPoint>> lines)
+    {
+        List<AStarPathFinding.IPoint> ew = GetLine(center, lines, Node.Neighbour.E, Node.Neighbour.W);
+        List<AStarPathFinding.IPoint> sn = GetLine(center, lines, Node.Neighbour.S, Node.Neighbour.N);
+        CheckLine(ew);
+        CheckLine(sn);
+        if (isOctalDirs)
+        {
+            List<AStarPathFinding.IPoint> nesw = GetLine(center, lines, Node.Neighbour.NE, Node.Neighbour.SW);
+            List<AStarPathFinding.IPoint> nwse = GetLine(center, lines, Node.Neighbour.NW, Node.Neighbour.SE);
+            CheckLine(nesw);
+            CheckLine(nwse);
+        }
+        locker = false;
+    }
+
+    private void CheckLine(List<AStarPathFinding.IPoint> line)
+    {
+        if (line.Count >= 5)
+        {
+            for (int i = 0; i < line.Count; i++)
+            {
+                Node node = GetNodeByIndex(line[i].GetUniqueId());
+                if (node != null)
+                {
+                    node.StartScale(1.0f, 0.3f, 1.0f, () => node.IsActive = false);
+                }
+            }
+        }
+    }
+
+    private List<AStarPathFinding.IPoint> GetLine(AStarPathFinding.IPoint center, Dictionary<Node.Neighbour, List<AStarPathFinding.IPoint>> lines, Node.Neighbour dir1, Node.Neighbour dir2)
+    {
+        List<AStarPathFinding.IPoint> line = new List<AStarPathFinding.IPoint>();
+        line.AddRange(lines[dir1]);
+        line.Add(center);
+        line.AddRange(lines[dir2]);
+        return line;
+    }
+
+    private Node GetNextPointByDirection(Node origin, Node.Neighbour dir)
+    {
+        Node next = GetPointByDirection(origin, dir);
+        if (next != null && next.IsActive)
+        {
+            if (next.PrimaryInfo.color == origin.PrimaryInfo.color)
+            {
+                return next;
+            }
+        }
+        return null;
+    }
+
+    private Node GetPointByDirection(Node origin, Node.Neighbour dir)
+    {
+        if ((origin.PrimaryInfo.neighbours & (int)dir) > 0)
+        {
+            int[] pattern;
+            DirectionPatterns.TryGetValue(dir, out pattern);
+            if (pattern != null)
+            {
+                int r, c;
+                ConvertTo2DIndex(origin.GetUniqueId(), out r, out c);
+                int index = ConvertTo1DIndex(r + pattern[0], c + pattern[1]);
+                return GetNodeByIndex(index);
+            }
+        }
         return null;
     }
 
@@ -270,10 +395,8 @@ public class BoardManager : MonoBehaviour
         return Vector3.Distance(GetNodeByIndex(from.GetUniqueId()).transform.localPosition, GetNodeByIndex(to.GetUniqueId()).transform.localPosition);
     }
 
-
     public static int GetDirectionsByIndex(int index)
     {
-        Debug.Log(string.Format("{0} ::=> {1}", index, "in"));
         int r = -1;
         int c = -1;
         int dirs = (int)Node.Neighbour.None;

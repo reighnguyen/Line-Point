@@ -138,7 +138,7 @@ public partial class Node : MonoBehaviour, IPointerDownHandler, IPointerUpHandle
         }
     }
 
-    public void StartMove(List<AStarPathFinding.IPoint> path, Action finishAct)
+    public void StartMove(List<AStarPathFinding.IPoint> path, AStarPathFinding.IPoint end, Action finishAct)
     {
         if (IsActive)
         {
@@ -146,6 +146,8 @@ public partial class Node : MonoBehaviour, IPointerDownHandler, IPointerUpHandle
             {
                 _path = path;
                 _isMoving = true;
+                _path.Reverse();
+                Debug.Log(string.Format("<color=red>{0}</color>", _path.Count));
 
                 float scaleFactor = 1;
                 float delayTime = 1.0f / scaleFactor;
@@ -155,8 +157,10 @@ public partial class Node : MonoBehaviour, IPointerDownHandler, IPointerUpHandle
                     (_path[i] as Node).StartScale(0.3f, 0.3f, scaleFactor, null);
                     (_path[i] as Node).SetColor(PrimaryInfo.color);
                 }
+                (end as Node).StartScale(0.3f, 0.3f, scaleFactor, null);
+                (end as Node).SetColor(PrimaryInfo.color);
 
-                StartCoroutine(MoveCoroutine(finishAct, delayTime));
+                StartCoroutine(MoveCoroutine(finishAct, end, delayTime));
             }
         }
     }
@@ -178,11 +182,8 @@ public partial class Node : MonoBehaviour, IPointerDownHandler, IPointerUpHandle
         _isMoving = false;
     }
 
-    private IEnumerator MoveCoroutine(Action finishAct, float delayTime)
+    private IEnumerator MoveCoroutine(Action finishAct, AStarPathFinding.IPoint end, float delayTime)
     {
-        _path.Reverse();
-        //yield return new WaitForSeconds(delayTime);
-
         int curMoveIndex = 0;
         int pointCount = _path.Count;
         while (_isMoving)
@@ -190,15 +191,13 @@ public partial class Node : MonoBehaviour, IPointerDownHandler, IPointerUpHandle
             if (curMoveIndex < pointCount)
             {
                 _curLocation = _path[curMoveIndex];
-                (_curLocation as Node).SetColor(PrimaryInfo.color);
-                if (curMoveIndex == pointCount - 1)
+                //(_curLocation as Node).SetColor(PrimaryInfo.color);
+                if (curMoveIndex == pointCount)
                 {
-                    (_curLocation as Node).StartScale(0.3f, 1f, 1, () => MoveFinish(finishAct));
+                    _curLocation = end;
                 }
-                else
-                {
-                    (_curLocation as Node).StartScale(0.3f, 0.4f, 1, null);
-                }
+                (_curLocation as Node).StartScale(0.3f, 0.4f, 1, null);
+
                 curMoveIndex++;
                 yield return _waitToNextMove;
             }
@@ -207,6 +206,7 @@ public partial class Node : MonoBehaviour, IPointerDownHandler, IPointerUpHandle
                 _isMoving = false;
             }
         }
+        (end as Node).StartScale(0.3f, 0.3f, 1, () => MoveFinish(finishAct));
         yield break;
     }
 
@@ -245,7 +245,7 @@ public partial class Node : MonoBehaviour, IPointerDownHandler, IPointerUpHandle
             if (_finshScale != null)
             {
                 _finshScale.Invoke();
-                _finshScale = null;
+                //_finshScale = null;
             }
         }
         else
@@ -264,7 +264,7 @@ public partial class Node : MonoBehaviour, IPointerDownHandler, IPointerUpHandle
             if (_finshScale != null)
             {
                 _finshScale.Invoke();
-                _finshScale = null;
+                //_finshScale = null;
             }
         }
         else

@@ -138,4 +138,26 @@ public class AStarPathFinding
             }
         }
     }
+
+    public List<IPoint> GetContinuallyPoints(AStarPathFinding.IPoint startPoint, Func<IPoint, IPoint> getNextPoint)
+    {
+        List<IPoint> result = new List<IPoint>();
+        List<IPoint> visited = new List<IPoint>();
+        GetContinuallyPoints(startPoint, ref result, ref visited, getNextPoint);
+        return result;
+    }
+
+    private void GetContinuallyPoints(IPoint currentPoint, ref List<IPoint> result, ref List<IPoint> visited, Func<IPoint, IPoint> getNextPoint)
+    {
+        IPoint next = getNextPoint.Invoke(currentPoint);
+        if (next != null)
+        {
+            if (!visited.Contains(next))
+            {
+                result.Add(next);
+                visited.Add(next);
+            }
+            GetContinuallyPoints(next, ref result, ref visited, getNextPoint);
+        }
+    }
 }
