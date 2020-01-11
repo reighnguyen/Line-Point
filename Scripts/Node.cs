@@ -8,6 +8,7 @@ using UnityEngine.UI;
 public partial class Node : MonoBehaviour, IPointerDownHandler, IPointerUpHandler, AStarPathFinding.IPoint
 {
     private const string DISPLAY_OBJECT = "Bound/Display";
+    private const string BACKGROUND_OBJECT = "Bound/Background";
 
     [SerializeField]
     private int _index = -1;
@@ -26,6 +27,20 @@ public partial class Node : MonoBehaviour, IPointerDownHandler, IPointerUpHandle
             return _displayImg;
         }
     }
+
+    private Image _backgroundImg;
+    public Image BackgroundImg
+    {
+        get
+        {
+            if (_backgroundImg == null)
+            {
+                _backgroundImg = transform.Find(BACKGROUND_OBJECT).GetComponent<Image>();
+            }
+            return _backgroundImg;
+        }
+    }
+
     [SerializeField]
     private bool _isActive;
     public bool IsActive
@@ -38,7 +53,7 @@ public partial class Node : MonoBehaviour, IPointerDownHandler, IPointerUpHandle
         {
             if (!value)
             {
-                SetColor(Color.clear);
+                ResetNode();
             }
             _isActive = value;
         }
@@ -68,7 +83,13 @@ public partial class Node : MonoBehaviour, IPointerDownHandler, IPointerUpHandle
     private AStarPathFinding.IPoint _curLocation;
     private List<AStarPathFinding.IPoint> _path;
 
-    public int dirs;
+    public int neighbours;
+
+    private void Start()
+    {
+        neighbours = BoardManager.GetDirectionsByIndex(_index);
+    }
+
     public void SetIndex(int index)
     {
         if (!IsActive)
@@ -88,32 +109,24 @@ public partial class Node : MonoBehaviour, IPointerDownHandler, IPointerUpHandle
             {
                 _info = info;
                 _index = index;
-                if (_info.neighbours == (int)Node.Neighbour.None)
-                {
-                    _info.neighbours = BoardManager.GetDirectionsByIndex(_index);
-                    dirs = _info.neighbours;
-                }
-                else
-                {
-                    _info.neighbours = dirs;
-                }
-
                 SetColor(_info.color);
                 IsActive = true;
             }
         }
     }
 
-    public void ChangeInfo(Primary info)
+    public void Setup(Primary info)
     {
-        _info = null;
-        Setup(info, _index);
+        _info = info;
+        SetColor(_info.color);
+        IsActive = true;
     }
 
     public void ResetNode()
     {
-        IsActive = false;
-        DisplayImg.color = Color.clear;
+        _info = null;
+        _isActive = false;
+        SetColor(Color.clear);
 
         // scale
         _isScaling = false;
@@ -147,7 +160,6 @@ public partial class Node : MonoBehaviour, IPointerDownHandler, IPointerUpHandle
                 _path = path;
                 _isMoving = true;
                 _path.Reverse();
-                Debug.Log(string.Format("<color=red>{0}</color>", _path.Count));
 
                 float scaleFactor = 1;
                 float delayTime = 1.0f / scaleFactor;
@@ -160,17 +172,17 @@ public partial class Node : MonoBehaviour, IPointerDownHandler, IPointerUpHandle
                 (end as Node).StartScale(0.3f, 0.3f, scaleFactor, null);
                 (end as Node).SetColor(PrimaryInfo.color);
 
-                StartCoroutine(MoveCoroutine(finishAct, end, delayTime));
+                StartCoroutine(MoveCoroutine(finishAct, end));
             }
         }
     }
 
     private void MoveFinish(Action finishAct)
     {
-
         for (int i = 0; i < _path.Count; i++)
         {
-            (_path[i] as Node).IsActive = false;
+            (_path[i] as Node)._isActive = false;
+            (_path[i] as Node).SetColor(Color.clear);
         }
 
         if (finishAct != null)
@@ -182,7 +194,7 @@ public partial class Node : MonoBehaviour, IPointerDownHandler, IPointerUpHandle
         _isMoving = false;
     }
 
-    private IEnumerator MoveCoroutine(Action finishAct, AStarPathFinding.IPoint end, float delayTime)
+    private IEnumerator MoveCoroutine(Action finishAct, AStarPathFinding.IPoint end)
     {
         int curMoveIndex = 0;
         int pointCount = _path.Count;
@@ -191,7 +203,6 @@ public partial class Node : MonoBehaviour, IPointerDownHandler, IPointerUpHandle
             if (curMoveIndex < pointCount)
             {
                 _curLocation = _path[curMoveIndex];
-                //(_curLocation as Node).SetColor(PrimaryInfo.color);
                 if (curMoveIndex == pointCount)
                 {
                     _curLocation = end;
@@ -242,11 +253,7 @@ public partial class Node : MonoBehaviour, IPointerDownHandler, IPointerUpHandle
         {
             _curScale = _targetScale;
             _isScaling = false;
-            if (_finshScale != null)
-            {
-                _finshScale.Invoke();
-                //_finshScale = null;
-            }
+            FireFinishScaleEvent();
         }
         else
         {
@@ -261,11 +268,7 @@ public partial class Node : MonoBehaviour, IPointerDownHandler, IPointerUpHandle
         {
             _curScale = _targetScale;
             _isScaling = false;
-            if (_finshScale != null)
-            {
-                _finshScale.Invoke();
-                //_finshScale = null;
-            }
+            FireFinishScaleEvent();
         }
         else
         {
@@ -292,4 +295,16 @@ public partial class Node : MonoBehaviour, IPointerDownHandler, IPointerUpHandle
     {
         return _index;
     }
+
+    private void FireFinishScaleEvent()
+    {
+        Action tempFinish = _finshScale;
+        _finshScale = null;
+        if (tempFinish != null)
+        {
+            tempFinish.Invoke();
+        }
+    }
+
+
 }

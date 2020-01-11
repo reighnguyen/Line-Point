@@ -19,7 +19,6 @@ public class NodeFactory
         {
             type = (Node.NodeType)rd,
             color = ColorSet[(Node.NodeType)rd],
-            neighbours = (int)Node.Neighbour.None
         };
     }
 }

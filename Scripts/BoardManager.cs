@@ -1,8 +1,14 @@
-﻿using System.Collections.Generic;
+﻿#define DEV_DEBUG
+#undef DEV_DEBUG
+
+using System;
+using System.Collections.Generic;
 using UnityEngine;
 
 public class BoardManager : MonoBehaviour
 {
+    private const int MINIMUM_TO_GET_POINT = 5;
+
     private static BoardManager _instance;
     public static BoardManager Instance
     {
@@ -15,7 +21,9 @@ public class BoardManager : MonoBehaviour
     [SerializeField]
     private RectTransform _nodeTemplate;
     [SerializeField]
-    private List<RectTransform> nodes;
+    private List<RectTransform> _nodes;
+    [SerializeField]
+    private ScoreManager _scoreManager;
 
     private NodeFactory _nodeFactory;
 
@@ -23,11 +31,11 @@ public class BoardManager : MonoBehaviour
     {
         get
         {
-            if (nodes == null)
+            if (_nodes == null)
             {
-                nodes = new List<RectTransform>();
+                _nodes = new List<RectTransform>();
             }
-            return nodes;
+            return _nodes;
         }
     }
 
@@ -94,10 +102,18 @@ public class BoardManager : MonoBehaviour
         }
     }
 
+    private NodeRandomSystem _randSystem;
+    private int _lastSelectedIndex = -1;
+    private List<KeyValuePair<int, Node.Primary>> _readyToSpawn;
+    private List<KeyValuePair<int, Node.Primary>> _nextSpawn;
+    private List<Node> _lastSpawned;
+
     public bool isOctalDirs;
     public const int COL = 9;
     public const int ROW = 9;
     public bool locker;
+
+    private bool _isGameOver;
 
     private void Awake()
     {
@@ -121,17 +137,23 @@ public class BoardManager : MonoBehaviour
     {
         for (int i = 0; i < Nodes.Count; i++)
         {
-            Node.Primary info = NodeFactory.GetRandomInfo();
             Node node = Nodes[i].GetComponent<Node>();
-            node.StartScale(0, 1, 0.5f, null);
-            node.ChangeInfo(info);
-
-            if (i > Nodes.Count - 20)
-            {
-                node.IsActive = false;
-            }
+            node.IsActive = false;
         }
         _selectedNodes = new Queue<Node>();
+        _randSystem = new NodeRandomSystem(NodeFactory);
+        _nextSpawn = null;
+        _lastSpawned = new List<Node>();
+        _readyToSpawn = _randSystem.GetRandomList(3, new List<int>());
+
+        GenerateNext();
+    }
+
+    private void Update()
+    {
+#if DEV_DEBUG
+        UpdateStatus();
+#endif
     }
 
     public void NodeSelected(Node node)
@@ -173,10 +195,7 @@ public class BoardManager : MonoBehaviour
                 {
                     List<AStarPathFinding.IPoint> path = new List<AStarPathFinding.IPoint>();
                     AStar.GetTracking(seccondSel, ref path);
-                    firstSel.StartMove(path, seccondSel, () =>
-                      {
-                          PointMoveFinish(firstSel, seccondSel);
-                      });
+                    firstSel.StartMove(path, seccondSel, () => PointMoveFinish(firstSel, seccondSel));
                 }
                 else
                 {
@@ -192,12 +211,14 @@ public class BoardManager : MonoBehaviour
 
     private void PointMoveFinish(Node firstSel, Node seccondSel)
     {
-        Node.Primary temp = firstSel.PrimaryInfo;
-        firstSel.ChangeInfo(seccondSel.PrimaryInfo);
-        seccondSel.ChangeInfo(temp);
+        _lastSelectedIndex = seccondSel.GetUniqueId();
+        _randSystem.Swap(firstSel, seccondSel);
 
-        seccondSel.StartScale(0.3f, 1.0f, 1, () => CheckBoard(seccondSel));
+        Node.Primary temp = firstSel.PrimaryInfo;
         firstSel.IsActive = false;
+
+        seccondSel.Setup(temp);
+        seccondSel.StartScale(0.3f, 1.0f, 1, () => CheckBoard(seccondSel));
     }
 
     public List<AStarPathFinding.IPoint> GetMoveablePoints(AStarPathFinding.IPoint cur)
@@ -210,7 +231,7 @@ public class BoardManager : MonoBehaviour
                 List<AStarPathFinding.IPoint> points = new List<AStarPathFinding.IPoint>();
                 int r, c;
                 ConvertTo2DIndex(index, out r, out c);
-                AddMoveablePoints(ref points, r, c, (cur as Node).PrimaryInfo.neighbours);
+                AddMoveablePoints(ref points, r, c, (cur as Node).neighbours);
                 return points;
             }
             catch (System.Exception e)
@@ -224,6 +245,61 @@ public class BoardManager : MonoBehaviour
 
     private void CheckBoard(AStarPathFinding.IPoint endPoint)
     {
+        Dictionary<Node.Neighbour, List<AStarPathFinding.IPoint>> continualPoints = GetContinualPoints(endPoint);
+        int score = CombinateDirections(endPoint, continualPoints, GenerateNext);
+        IncreaseScore(score);
+    }
+
+    private void IncreaseScore(int score)
+    {
+        _scoreManager.InscreaseScore(score);
+    }
+
+    private void RecheckBoardAfterSpwan()
+    {
+        int score = 0;
+        Action<int> checkEndGame = (scoreGetted) =>
+        {
+            if (_isGameOver)
+            {
+                if (scoreGetted == 0)
+                {
+                    Debug.Log("Game Over");
+                }
+                else
+                {
+                    _isGameOver = false;
+
+                }
+            }
+        };
+
+        int maxSpawn = _lastSpawned.Count;
+        int spawnCount = 0;
+        if (maxSpawn > 0)
+        {
+            for (int i = 0; i < _lastSpawned.Count; i++)
+            {
+                Dictionary<Node.Neighbour, List<AStarPathFinding.IPoint>> lineByLastSpawn = GetContinualPoints(_lastSpawned[i]);
+                score += CombinateDirections(_lastSpawned[i], lineByLastSpawn, () =>
+                    {
+                        spawnCount++;
+                        if (spawnCount == maxSpawn)
+                        {
+                            checkEndGame(score);
+                        }
+                    });
+            }
+            IncreaseScore(score);
+        }
+        else
+        {
+            Debug.LogError("What went wrong here!");
+        }
+    }
+
+    private Dictionary<Node.Neighbour, List<AStarPathFinding.IPoint>> GetContinualPoints(AStarPathFinding.IPoint endPoint)
+    {
         Dictionary<Node.Neighbour, List<AStarPathFinding.IPoint>> continualPoints = new Dictionary<Node.Neighbour, List<AStarPathFinding.IPoint>>();
         continualPoints[Node.Neighbour.E] = AStar.GetContinuallyPoints(endPoint, (point) => GetNextPointByDirection(point as Node, Node.Neighbour.E));
         continualPoints[Node.Neighbour.N] = AStar.GetContinuallyPoints(endPoint, (point) => GetNextPointByDirection(point as Node, Node.Neighbour.N));
@@ -236,38 +312,91 @@ public class BoardManager : MonoBehaviour
             continualPoints[Node.Neighbour.SW] = AStar.GetContinuallyPoints(endPoint, (point) => GetNextPointByDirection(point as Node, Node.Neighbour.SW));
             continualPoints[Node.Neighbour.NW] = AStar.GetContinuallyPoints(endPoint, (point) => GetNextPointByDirection(point as Node, Node.Neighbour.NW));
         }
-        CombinateDirections(endPoint, continualPoints);
+        return continualPoints;
     }
 
-    private void CombinateDirections(AStarPathFinding.IPoint center, Dictionary<Node.Neighbour, List<AStarPathFinding.IPoint>> lines)
+    private int CombinateDirections
+        (AStarPathFinding.IPoint center, Dictionary<Node.Neighbour, List<AStarPathFinding.IPoint>> lines, Action finishAct)
     {
+        List<AStarPathFinding.IPoint> collectPoints = new List<AStarPathFinding.IPoint>();
         List<AStarPathFinding.IPoint> ew = GetLine(center, lines, Node.Neighbour.E, Node.Neighbour.W);
         List<AStarPathFinding.IPoint> sn = GetLine(center, lines, Node.Neighbour.S, Node.Neighbour.N);
-        CheckLine(ew);
-        CheckLine(sn);
+
+        int compo = 0;
+        if (CheckLine(ew, ref compo))
+        {
+            collectPoints.AddRange(ew);
+        }
+        if (CheckLine(sn, ref compo))
+        {
+            collectPoints.AddRange(sn);
+        }
+
         if (isOctalDirs)
         {
             List<AStarPathFinding.IPoint> nesw = GetLine(center, lines, Node.Neighbour.NE, Node.Neighbour.SW);
             List<AStarPathFinding.IPoint> nwse = GetLine(center, lines, Node.Neighbour.NW, Node.Neighbour.SE);
-            CheckLine(nesw);
-            CheckLine(nwse);
+            if (CheckLine(nesw, ref compo))
+            {
+                collectPoints.AddRange(nesw);
+            }
+            if (CheckLine(nwse, ref compo))
+            {
+                collectPoints.AddRange(nwse);
+            }
         }
-        locker = false;
+        RestorePoints(collectPoints, () =>
+         {
+             locker = false;
+             if (finishAct != null)
+             {
+                 finishAct.Invoke();
+             }
+         });
+        return compo;
     }
 
-    private void CheckLine(List<AStarPathFinding.IPoint> line)
+    private void RestorePoints(List<AStarPathFinding.IPoint> points, Action finishAct)
     {
-        if (line.Count >= 5)
+        int maxPoint = points.Count;
+        if (maxPoint > 0)
         {
-            for (int i = 0; i < line.Count; i++)
+            int count = 0;
+            for (int i = 0; i < maxPoint; i++)
             {
-                Node node = GetNodeByIndex(line[i].GetUniqueId());
+                Node node = GetNodeByIndex(points[i].GetUniqueId());
                 if (node != null)
                 {
-                    node.StartScale(1.0f, 0.3f, 1.0f, () => node.IsActive = false);
+                    _randSystem.Restore(node.GetUniqueId());
+                    node.StartScale(1.0f, 0.3f, 1.0f, () =>
+                    {
+                        node.IsActive = false;
+
+                        count++;
+                        if (count == maxPoint)
+                        {
+                            finishAct.Invoke();
+                        }
+                    });
                 }
             }
         }
+        else
+        {
+            finishAct.Invoke();
+        }
+    }
+
+    private bool CheckLine(List<AStarPathFinding.IPoint> line, ref int score)
+    {
+        int count = line.Count;
+        if (count >= MINIMUM_TO_GET_POINT)
+        {
+            // equal to 1 + bonus
+            score += (count / MINIMUM_TO_GET_POINT) + (count % MINIMUM_TO_GET_POINT);
+            return true;
+        }
+        return false;
     }
 
     private List<AStarPathFinding.IPoint> GetLine(AStarPathFinding.IPoint center, Dictionary<Node.Neighbour, List<AStarPathFinding.IPoint>> lines, Node.Neighbour dir1, Node.Neighbour dir2)
@@ -284,17 +413,81 @@ public class BoardManager : MonoBehaviour
         Node next = GetPointByDirection(origin, dir);
         if (next != null && next.IsActive)
         {
-            if (next.PrimaryInfo.color == origin.PrimaryInfo.color)
+            if (next.PrimaryInfo != null && origin.PrimaryInfo != null)
             {
-                return next;
+                if (next.PrimaryInfo.color == origin.PrimaryInfo.color)
+                {
+                    return next;
+                }
             }
         }
         return null;
     }
 
-    private Node GetPointByDirection(Node origin, Node.Neighbour dir)
+    private void GenerateNext()
     {
-        if ((origin.PrimaryInfo.neighbours & (int)dir) > 0)
+        _lastSpawned.Clear();
+        if (_readyToSpawn.Count > 0)
+        {
+            int count = 0;
+            int maxAnimation = _readyToSpawn.Count;
+            for (int i = 0; i < _readyToSpawn.Count; i++)
+            {
+                KeyValuePair<int, Node.Primary> nodeInfo = _readyToSpawn[i];
+                if (_lastSelectedIndex == nodeInfo.Key)
+                {
+                    List<int> ignore = _readyToSpawn.ConvertAll<int>((kvp) => kvp.Key);
+                    ignore.AddRange(_nextSpawn.ConvertAll<int>((kvp) => kvp.Key));
+                    ignore.Add(_lastSelectedIndex);
+
+                    KeyValuePair<int, Node.Primary> rdInfo = _randSystem.GetRandomNode(ignore);
+                    if (rdInfo.Key != -1)
+                    {
+                        nodeInfo = rdInfo;
+                        _readyToSpawn[i] = nodeInfo;
+                    }
+                    else
+                    {
+                        maxAnimation--;
+                        continue;
+                    }
+                }
+                NodeDic[nodeInfo.Key].Setup(nodeInfo.Value);
+                NodeDic[nodeInfo.Key].StartScale(0.5f, 1.0f, 1, () =>
+                {
+                    count++;
+                    if (count == maxAnimation)
+                    {
+                        RecheckBoardAfterSpwan();
+                        _lastSpawned.Clear();
+                    }
+                });
+                _randSystem.MarkNodeUsed(nodeInfo.Key);
+                _lastSpawned.Add(NodeDic[nodeInfo.Key]);
+            }
+        }
+
+        _nextSpawn = _randSystem.GetRandomList(10, new List<int>());
+        for (int i = 0; i < _nextSpawn.Count; i++)
+        {
+            KeyValuePair<int, Node.Primary> nodeInfo = _nextSpawn[i];
+            NodeDic[nodeInfo.Key].SetColor(nodeInfo.Value.color);
+            NodeDic[nodeInfo.Key].StartScale(0.1f, 0.4f, 1, null);
+        }
+        if (_nextSpawn.Count != 0)
+        {
+            _readyToSpawn = _nextSpawn;
+        }
+        else
+        {
+            // maybe game end here
+            _isGameOver = true;
+        }
+    }
+
+    public Node GetPointByDirection(Node origin, Node.Neighbour dir)
+    {
+        if ((origin.neighbours & (int)dir) > 0)
         {
             int[] pattern;
             DirectionPatterns.TryGetValue(dir, out pattern);
@@ -377,7 +570,7 @@ public class BoardManager : MonoBehaviour
         }
     }
 
-    private Node GetNodeByIndex(int index)
+    public Node GetNodeByIndex(int index)
     {
         if (NodeDic.ContainsKey(index))
         {
@@ -462,16 +655,16 @@ public class BoardManager : MonoBehaviour
                 }
             }
         }
-        Debug.Log(string.Format("{0} ::=> {1}", index, "out " + dirs));
+        //Debug.Log(string.Format("{0} ::=> {1}", index, "out " + dirs));
         return dirs;
     }
-    private static int ConvertTo1DIndex(int row, int col)
+    public static int ConvertTo1DIndex(int row, int col)
     {
         int r = Mathf.Clamp(row, 0, ROW);
         int c = Mathf.Clamp(col, 0, COL);
         return r * ROW + c;
     }
-    private static void ConvertTo2DIndex(int index1D, out int row, out int col)
+    public static void ConvertTo2DIndex(int index1D, out int row, out int col)
     {
         if (index1D >= 0 && index1D <= ConvertTo1DIndex(ROW, COL))
         {
@@ -496,6 +689,7 @@ public class BoardManager : MonoBehaviour
                 int index = ConvertTo1DIndex(r, c);
                 RectTransform node = Instantiate(_nodeTemplate, transform);
                 node.GetComponent<Node>().SetIndex(index);
+                node.gameObject.name = index.ToString();
                 node.gameObject.SetActive(true);
                 Nodes.Add(node);
             }
@@ -511,4 +705,31 @@ public class BoardManager : MonoBehaviour
         Nodes.Clear();
     }
 #endif
+
+#if DEV_DEBUG
+    private const float ALPHA = 0.5f;
+    public Color usedNode = new Color(1, 0, 0, ALPHA);
+    public Color nextUseNode = new Color(1, 0.92f, 0.16f, ALPHA);
+    public Color freeNode = new Color(1, 1, 1, 1);
+
+    private void UpdateStatus()
+    {
+        foreach (KeyValuePair<int, Node> nodeKvp in NodeDic)
+        {
+            if (nodeKvp.Value.IsActive)
+            {
+                nodeKvp.Value.BackgroundImg.color = usedNode;
+            }
+            else if (_nextSpawn.Contains(kvp => kvp.Key == nodeKvp.Key))
+            {
+                nodeKvp.Value.BackgroundImg.color = nextUseNode;
+            }
+            else
+            {
+                nodeKvp.Value.BackgroundImg.color = freeNode;
+            }
+        }
+    }
+#endif
+
 }

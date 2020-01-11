@@ -27,7 +27,6 @@ public partial class Node
     {
         public Color color;
         public NodeType type;
-        public int neighbours;
     }
 
 }
