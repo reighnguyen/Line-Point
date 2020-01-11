@@ -88,4 +88,11 @@ public class NodeRandomSystem
         _usedNodeList.Remove(id);
         _freeNodeList.Add(id);
     }
+
+    public void Restart()
+    {
+        _usedNodeList.Clear();
+        _freeNodeList.Clear();
+        Initalize();
+    }
 }

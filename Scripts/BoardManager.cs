@@ -107,12 +107,28 @@ public class BoardManager : MonoBehaviour
     private List<KeyValuePair<int, Node.Primary>> _readyToSpawn;
     private List<KeyValuePair<int, Node.Primary>> _nextSpawn;
     private List<Node> _lastSpawned;
+    private Action _onGameOver;
+    public event Action OnGameOver
+    {
+        add
+        {
+            _onGameOver += value;
+        }
+        remove
+        {
+            if(_onGameOver != null)
+            {
+                _onGameOver -= value;
+            }
+        }
+    }
 
     public bool isOctalDirs;
     public const int COL = 9;
     public const int ROW = 9;
+    public const int MAX_SPAWN_AT_THE_SAME_TIME = 20;
     public bool locker;
-
+    
     private bool _isGameOver;
 
     private void Awake()
@@ -134,19 +150,11 @@ public class BoardManager : MonoBehaviour
     }
 
     private void Start()
-    {
-        for (int i = 0; i < Nodes.Count; i++)
-        {
-            Node node = Nodes[i].GetComponent<Node>();
-            node.IsActive = false;
-        }
+    {       
         _selectedNodes = new Queue<Node>();
         _randSystem = new NodeRandomSystem(NodeFactory);
-        _nextSpawn = null;
         _lastSpawned = new List<Node>();
-        _readyToSpawn = _randSystem.GetRandomList(3, new List<int>());
-
-        GenerateNext();
+        _nextSpawn = new List<KeyValuePair<int, Node.Primary>>();
     }
 
     private void Update()
@@ -260,11 +268,13 @@ public class BoardManager : MonoBehaviour
         int score = 0;
         Action<int> checkEndGame = (scoreGetted) =>
         {
+            Debug.Log("check end " + scoreGetted + " " + _isGameOver);
             if (_isGameOver)
             {
                 if (scoreGetted == 0)
                 {
-                    Debug.Log("Game Over");
+                    Debug.Log("Game over " + scoreGetted + " " + _isGameOver);
+                    FireGameOverEvent();
                 }
                 else
                 {
@@ -376,6 +386,7 @@ public class BoardManager : MonoBehaviour
                         if (count == maxPoint)
                         {
                             finishAct.Invoke();
+                            Debug.Log("Invoke after restore" + count + " " + maxPoint);
                         }
                     });
                 }
@@ -384,6 +395,7 @@ public class BoardManager : MonoBehaviour
         else
         {
             finishAct.Invoke();
+            Debug.Log("Doesn't has any point to restore");
         }
     }
 
@@ -467,7 +479,7 @@ public class BoardManager : MonoBehaviour
             }
         }
 
-        _nextSpawn = _randSystem.GetRandomList(10, new List<int>());
+        _nextSpawn = _randSystem.GetRandomList(MAX_SPAWN_AT_THE_SAME_TIME, new List<int>());
         for (int i = 0; i < _nextSpawn.Count; i++)
         {
             KeyValuePair<int, Node.Primary> nodeInfo = _nextSpawn[i];
@@ -586,6 +598,35 @@ public class BoardManager : MonoBehaviour
     private float CalDistance(AStarPathFinding.IPoint from, AStarPathFinding.IPoint to)
     {
         return Vector3.Distance(GetNodeByIndex(from.GetUniqueId()).transform.localPosition, GetNodeByIndex(to.GetUniqueId()).transform.localPosition);
+    }
+
+    public void StartGame()
+    {
+        for (int i = 0; i < Nodes.Count; i++)
+        {
+            Node node = Nodes[i].GetComponent<Node>();
+            node.IsActive = false;
+        }
+        _nextSpawn.Clear();
+        _lastSpawned.Clear();
+        _readyToSpawn = _randSystem.GetRandomList(3, new List<int>());
+        GenerateNext();
+    }
+
+    public void RestartGame()
+    {
+        _readyToSpawn.Clear();
+        _randSystem.Restart();
+        _isGameOver = false;
+        StartGame();
+    }
+
+    private void FireGameOverEvent()
+    {
+        if(_onGameOver != null)
+        {
+            _onGameOver.Invoke();
+        }
     }
 
     public static int GetDirectionsByIndex(int index)
